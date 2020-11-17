@@ -5,6 +5,7 @@
 #define _LINUX_BTF_H 1
 
 #include <linux/types.h>
+#include <linux/seq_file.h>
 #include <uapi/linux/btf.h>
 #include <uapi/linux/bpf.h>
 
