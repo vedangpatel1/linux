@@ -228,6 +228,8 @@ struct igc_adapter {
 	struct system_counterval_t ptm_host_time;
 
 	struct bpf_prog *xdp_prog;
+	struct btf *btf;
+	u8 btf_enabled;
 };
 
 void igc_up(struct igc_adapter *adapter);

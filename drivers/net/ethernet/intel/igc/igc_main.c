@@ -12,6 +12,7 @@
 #include <net/pkt_sched.h>
 #include <linux/pci.h>
 #include <linux/bpf_trace.h>
+#include <linux/btf.h>
 
 #include <net/ipv6.h>
 
@@ -2120,6 +2121,7 @@ static int igc_clean_rx_irq(struct igc_q_vector *q_vector, const int budget)
 	struct igc_ring *rx_ring = q_vector->rx.ring;
 	struct sk_buff *skb = rx_ring->skb;
 	u16 cleaned_count = igc_desc_unused(rx_ring);
+	struct igc_md_desc *md;
 	int xdp_status = 0;
 
 	while (likely(total_packets < budget)) {
@@ -2164,7 +2166,15 @@ static int igc_clean_rx_irq(struct igc_q_vector *q_vector, const int budget)
 			xdp.data = pktbuf + pkt_offset;
 			xdp.data_end = xdp.data + size;
 			xdp.data_hard_start = pktbuf - igc_rx_offset(rx_ring);
-			xdp_set_data_meta_invalid(&xdp);
+
+			if (adapter->btf_enabled) {
+				md = xdp.data - sizeof(*md);
+				xdp.data_meta = md;
+				md->timestamp = timestamp;
+
+			} else {
+				xdp_set_data_meta_invalid(&xdp);
+			}
 			xdp.frame_sz = truesize;
 			xdp.rxq = &rx_ring->xdp_rxq;
 
@@ -5140,6 +5150,11 @@ static int igc_bpf(struct net_device *dev, struct netdev_bpf *bpf)
 	switch (bpf->command) {
 	case XDP_SETUP_PROG:
 		return igc_xdp_set_prog(adapter, bpf->prog, bpf->extack);
+	case XDP_SETUP_MD_BTF:
+		return igc_xdp_set_btf_md(dev, bpf->btf_enable);
+	case XDP_QUERY_MD_BTF:
+		bpf->btf_id = igc_xdp_query_btf(dev, &bpf->btf_enable);
+		return 0;
 	default:
 		return -EOPNOTSUPP;
 	}
@@ -5588,6 +5603,11 @@ static void igc_remove(struct pci_dev *pdev)
 
 	cancel_work_sync(&adapter->reset_task);
 	cancel_work_sync(&adapter->watchdog_task);
+
+	if (adapter->btf) {
+		adapter->btf_enabled = 0;
+		btf_unregister(adapter->btf);
+	}
 
 	/* Release control of h/w to f/w.  If f/w is AMT enabled, this
 	 * would have already happened in close and is redundant.
